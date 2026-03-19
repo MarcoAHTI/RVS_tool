@@ -4,20 +4,48 @@ cat(paste0("Working directory: ", getwd(), "\n"))
 cat("=============================================\n\n")
 flush.console()
 
+# ===== PACKAGE MANAGEMENT: Install & Load =====
+cat("[STARTUP] Installing and loading required packages...\n")
+flush.console()
+
+packages <- c(
+  "shiny",
+  "readxl",
+  "dplyr",
+  "tidyr",
+  "ggplot2",
+  "purrr",
+  "plotly",
+  "tibble"
+)
+
+# Identify packages that are not yet installed
+new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+
+# Install missing packages if any
+if (length(new_packages) > 0) {
+  cat(sprintf("[STARTUP] Installing missing packages: %s\n", paste(new_packages, collapse = ", ")))
+  flush.console()
+  install.packages(
+    new_packages,
+    lib = Sys.getenv("R_LIBS_USER"),
+    repos = "https://cran.r-project.org"
+  )
+  cat("[STARTUP] Package installation complete.\n")
+  flush.console()
+}
+
+# Load all required packages
+cat("[STARTUP] Loading packages...\n")
+flush.console()
+lapply(packages, library, character.only = TRUE)
+cat("[STARTUP] All packages loaded successfully.\n")
+flush.console()
+
 # app.R
 # Simple Shiny dashboard for dummy data in data/dummy_data_iteration_1/all_output.xlsx
 # - var choices from name column without the "gebruikt" prefix
 # - matched partner name with "gebruikt" prefix (if exists), otherwise NA
-
-library(shiny)
-library(readxl)
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(purrr)
-
-# Plotly is optional, but will be used if installed; otherwise show a text prompt to install.
-plotly_installed <- requireNamespace("plotly", quietly = TRUE)
 
 if (getRversion() >= "2.15.1") {
   utils::globalVariables(c(
@@ -93,8 +121,8 @@ ui <- fluidPage(
 
     mainPanel(
       tabsetPanel(
-        tabPanel("Costs boxplot-like", if (plotly_installed) plotlyOutput("plot_cost") else plotOutput("plot_cost")),
-        tabPanel("Usage barplot", if (plotly_installed) plotlyOutput("plot_usage") else plotOutput("plot_usage"))
+        tabPanel("Costs boxplot-like", plotlyOutput("plot_cost")),
+        tabPanel("Usage barplot", plotlyOutput("plot_usage"))
       ),
       verbatimTextOutput("app_log")
     )
@@ -216,137 +244,78 @@ server <- function(input, output, session) {
     }
   })
 
-  if (plotly_installed) {
-    output$plot_cost <- plotly::renderPlotly({
-      log_msg("[render] Rendering plot_cost with plotly...")
-      tryCatch({
-        df <- plot_cost_data()
-        if (nrow(df) == 0) {
-          log_msg("[render] plot_cost: no data available")
-          p <- ggplot() +
-            geom_text(aes(0, 0, label = "Geen kosten-data beschikbaar."), size = 5) +
-            xlab(NULL) + ylab(NULL) + theme_void()
-          return(plotly::ggplotly(p))
-        }
-
-        log_msg(sprintf("[render] plot_cost: rendering %d rows", nrow(df)))
-        p <- ggplot(df, aes(x = factor(t), group = died, color = died, fill = died)) +
-          geom_errorbar(aes(ymin = q05_per_persoon, ymax = q95_per_persoon),
-                        position = position_dodge(width = 0.8), width = 0.2) +
-          geom_crossbar(aes(y = mediaan_per_persoon, ymin = q25_per_persoon, ymax = q75_per_persoon),
-                        position = position_dodge(width = 0.8), width = 0.35, alpha = 0.35) +
-          geom_point(aes(y = mediaan_per_persoon), position = position_dodge(width = 0.8), size = 2) +
-          facet_wrap(~cohort, nrow = 1) +
-          labs(
-            title = paste("Kostenboxplot voor", input$selected_var),
-            x = "t", y = "Kosten (per persoon)",
-            color = "Status", fill = "Status"
-          ) +
-          theme_minimal() +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-        plotly::ggplotly(p)
-      }, error = function(e) {
-        msg <- sprintf("[plot_cost render] %s", e$message)
-        add_error(msg)
+  output$plot_cost <- plotly::renderPlotly({
+    log_msg("[render] Rendering plot_cost with plotly...")
+    tryCatch({
+      df <- plot_cost_data()
+      if (nrow(df) == 0) {
+        log_msg("[render] plot_cost: no data available")
         p <- ggplot() +
-          geom_text(aes(0, 0, label = "Plot failed to render."), size = 5) +
+          geom_text(aes(0, 0, label = "Geen kosten-data beschikbaar."), size = 5) +
           xlab(NULL) + ylab(NULL) + theme_void()
-        plotly::ggplotly(p)
-      })
+        return(plotly::ggplotly(p))
+      }
+
+      log_msg(sprintf("[render] plot_cost: rendering %d rows", nrow(df)))
+      p <- ggplot(df, aes(x = factor(t), group = died, color = died, fill = died)) +
+        geom_errorbar(aes(ymin = q05_per_persoon, ymax = q95_per_persoon),
+                      position = position_dodge(width = 0.8), width = 0.2) +
+        geom_crossbar(aes(y = mediaan_per_persoon, ymin = q25_per_persoon, ymax = q75_per_persoon),
+                      position = position_dodge(width = 0.8), width = 0.35, alpha = 0.35) +
+        geom_point(aes(y = mediaan_per_persoon), position = position_dodge(width = 0.8), size = 2) +
+        facet_wrap(~cohort, nrow = 1) +
+        labs(
+          title = paste("Kostenboxplot voor", input$selected_var),
+          x = "t", y = "Kosten (per persoon)",
+          color = "Status", fill = "Status"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      plotly::ggplotly(p)
+    }, error = function(e) {
+      msg <- sprintf("[plot_cost render] %s", e$message)
+      add_error(msg)
+      p <- ggplot() +
+        geom_text(aes(0, 0, label = "Plot failed to render."), size = 5) +
+        xlab(NULL) + ylab(NULL) + theme_void()
+      plotly::ggplotly(p)
     })
-  } else {
-    output$plot_cost <- renderPlot({
-      log_msg("[render] Rendering plot_cost with static ggplot...")
-      tryCatch({
-        df <- plot_cost_data()
-        if (nrow(df) == 0) {
-          log_msg("[render] plot_cost: no data available")
-          plot.new(); text(0.5, 0.5, "Geen kosten-data beschikbaar.", cex = 1.2)
-          return()
-        }
+  })
 
-        log_msg(sprintf("[render] plot_cost: rendering %d rows", nrow(df)))
-        ggplot(df, aes(x = factor(t), group = died, color = died, fill = died)) +
-          geom_errorbar(aes(ymin = q05_per_persoon, ymax = q95_per_persoon),
-                        position = position_dodge(width = 0.8), width = 0.2) +
-          geom_crossbar(aes(y = mediaan_per_persoon, ymin = q25_per_persoon, ymax = q75_per_persoon),
-                        position = position_dodge(width = 0.8), width = 0.35, alpha = 0.35) +
-          geom_point(aes(y = mediaan_per_persoon), position = position_dodge(width = 0.8), size = 2) +
-          facet_wrap(~cohort, nrow = 1) +
-          labs(
-            title = paste("Kostenboxplot voor", input$selected_var),
-            x = "t", y = "Kosten (per persoon)",
-            color = "Status", fill = "Status"
-          ) +
-          theme_minimal() +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1))
-      }, error = function(e) {
-        msg <- sprintf("[plot_cost static] %s", e$message)
-        add_error(msg)
-        plot.new(); text(0.5, 0.5, "Plot render error.", cex = 1.2)
-      })
-    })
-  }
-
-  if (plotly_installed) {
-    output$plot_usage <- plotly::renderPlotly({
-      tryCatch({
-        df <- plot_usage_data()
-        if (nrow(df) == 0) {
-          p <- ggplot() +
-            geom_text(aes(0, 0, label = "Geen gebruiksdata beschikbaar."), size = 5) +
-            xlab(NULL) + ylab(NULL) + theme_void()
-          return(plotly::ggplotly(p))
-        }
-
-        p <- ggplot(df, aes(x = factor(t), y = value, fill = died)) +
-          geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-          facet_wrap(~cohort, nrow = 1) +
-          labs(
-            title = paste("Gebruikt gemiddeld per persoon voor", input$selected_var),
-            x = "t", y = "gemiddelde", fill = "Status"
-          ) +
-          theme_minimal() +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-        plotly::ggplotly(p)
-      }, error = function(e) {
-        msg <- sprintf("[plot_usage plotly] %s", e$message)
-        message(msg)
-        startup_errors <<- c(startup_errors, msg)
+  output$plot_usage <- plotly::renderPlotly({
+    log_msg("[render] Rendering plot_usage with plotly...")
+    tryCatch({
+      df <- plot_usage_data()
+      if (nrow(df) == 0) {
+        log_msg("[render] plot_usage: no data available")
         p <- ggplot() +
-          geom_text(aes(0, 0, label = "Plot failed to render."), size = 5) +
+          geom_text(aes(0, 0, label = "Geen gebruiksdata beschikbaar."), size = 5) +
           xlab(NULL) + ylab(NULL) + theme_void()
-        plotly::ggplotly(p)
-      })
-    })
-  } else {
-    output$plot_usage <- renderPlot({
-      tryCatch({
-        df <- plot_usage_data()
-        if (nrow(df) == 0) {
-          plot.new(); text(0.5, 0.5, "Geen gebruiksdata beschikbaar.", cex = 1.2)
-          return()
-        }
+        return(plotly::ggplotly(p))
+      }
 
-        ggplot(df, aes(x = factor(t), y = value, fill = died)) +
-          geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-          facet_wrap(~cohort, nrow = 1) +
-          labs(
-            title = paste("Gebruikt gemiddeld per persoon voor", input$selected_var),
-            x = "t", y = "gemiddelde", fill = "Status"
-          ) +
-          theme_minimal() +
-          theme(axis.text.x = element_text(angle = 45, hjust = 1))
-      }, error = function(e) {
-        msg <- sprintf("[plot_usage static] %s", e$message)
-        message(msg)
-        startup_errors <<- c(startup_errors, msg)
-        plot.new(); text(0.5, 0.5, "Plot render error.", cex = 1.2)
-      })
+      log_msg(sprintf("[render] plot_usage: rendering %d rows", nrow(df)))
+      p <- ggplot(df, aes(x = factor(t), y = value, fill = died)) +
+        geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+        facet_wrap(~cohort, nrow = 1) +
+        labs(
+          title = paste("Gebruikt gemiddeld per persoon voor", input$selected_var),
+          x = "t", y = "gemiddelde", fill = "Status"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      plotly::ggplotly(p)
+    }, error = function(e) {
+      msg <- sprintf("[plot_usage render] %s", e$message)
+      add_error(msg)
+      p <- ggplot() +
+        geom_text(aes(0, 0, label = "Plot failed to render."), size = 5) +
+        xlab(NULL) + ylab(NULL) + theme_void()
+      plotly::ggplotly(p)
     })
-  }
+  })
 }
 
 # Run the app
