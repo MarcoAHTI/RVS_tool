@@ -21,6 +21,7 @@ if (getRversion() >= "2.15.1") {
 }
 
 data_path <- "data/dummy_data_iteration_1/all_output.xlsx"
+startup_errors <- character()
 
 read_all_data <- function(path = data_path) {
   sheets <- readxl::excel_sheets(path)
@@ -34,7 +35,15 @@ read_all_data <- function(path = data_path) {
   df
 }
 
-all_data <- read_all_data(data_path)
+all_data <- tryCatch(
+  read_all_data(data_path),
+  error = function(e) {
+    msg <- sprintf("[startup] read_all_data failed: %s", e$message)
+    message(msg)
+    startup_errors <<- c(startup_errors, msg)
+    tibble::tibble()
+  }
+)
 
 base_names <- sort(unique(all_data$name[!startsWith(all_data$name, "gebruikt")]))
 
@@ -58,7 +67,8 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Costs boxplot-like", if (plotly_installed) plotlyOutput("plot_cost") else plotOutput("plot_cost")),
         tabPanel("Usage barplot", if (plotly_installed) plotlyOutput("plot_usage") else plotOutput("plot_usage"))
-      )
+      ),
+      verbatimTextOutput("app_log")
     )
   )
 )
@@ -91,11 +101,27 @@ server <- function(input, output, session) {
       return(tibble::tibble())
     }
 
-    all_data %>%
-      filter(name == usage_name, type == "gemiddelde_per_persoon") %>%
-      group_by(cohort, died, t) %>%
-      summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
-      mutate(t = factor(as.numeric(t), levels = sort(unique(as.numeric(t)))))
+    out <- tryCatch({
+      all_data %>%
+        filter(name == usage_name, type == "gemiddelde_per_persoon") %>%
+        group_by(cohort, died, t) %>%
+        summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+        mutate(t = factor(as.numeric(t), levels = sort(unique(as.numeric(t)))))
+    }, error = function(e) {
+      msg <- sprintf("[plot_usage_data] failed: %s", e$message)
+      message(msg); startup_errors <<- c(startup_errors, msg)
+      tibble::tibble()
+    })
+
+    out
+  })
+
+  output$app_log <- renderText({
+    if (length(startup_errors) > 0) {
+      paste(startup_errors, collapse = "\n")
+    } else {
+      "No startup errors detected."
+    }
   })
 
   if (plotly_installed) {
@@ -195,4 +221,13 @@ server <- function(input, output, session) {
   }
 }
 
-shinyApp(ui, server)
+# Run the app
+app_ui <- ui
+if (exists("secure_app", mode = "function")) {
+  message("secure_app found, wrapping ui")
+  app_ui <- secure_app(ui)
+} else {
+  message("secure_app function not found; running without secure_app")
+}
+
+shinyApp(app_ui, server)
