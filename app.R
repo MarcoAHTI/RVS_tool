@@ -1,3 +1,9 @@
+cat("\n========== RVS TOOL APP STARTUP ==========\n")
+cat(paste0("Time: ", Sys.time(), "\n"))
+cat(paste0("Working directory: ", getwd(), "\n"))
+cat("=============================================\n\n")
+flush.console()
+
 # app.R
 # Simple Shiny dashboard for dummy data in data/dummy_data_iteration_1/all_output.xlsx
 # - var choices from name column without the "gebruikt" prefix
@@ -22,13 +28,20 @@ if (getRversion() >= "2.15.1") {
 }
 
 data_path <- "data/dummy_data_iteration_1/all_output.xlsx"
-startup_errors <- character()
+
+# Create log file for all messages
+log_file <- "shiny_console.log"
+unlink(log_file)  # Clear any old log file
+
+log_msg <- function(msg) {
+  cat(paste0("[", Sys.time(), "] ", msg, "\n"), file = log_file, append = TRUE)
+  cat(paste0("[", Sys.time(), "] ", msg, "\n"))  # Also print to console
+}
 
 read_all_data <- function(path = data_path) {
   if (!file.exists(path)) {
     msg <- sprintf("[read_all_data] File not found: %s", path)
-    message(msg)
-    startup_errors <<- c(startup_errors, msg)
+    log_msg(msg)
     return(tibble::tibble())
   }
   
@@ -40,16 +53,17 @@ read_all_data <- function(path = data_path) {
                                        died = as.character(died),
                                        name = as.character(name),
                                        type = as.character(type)))
+  log_msg(sprintf("[read_all_data] Loaded %d rows from %d sheets", nrow(df), length(sheets)))
   df
 }
 
 # Initialize with empty tibble, will load reactively
+log_msg("[startup] Starting Shiny app initialization")
 all_data_initial <- tryCatch(
   read_all_data(data_path),
   error = function(e) {
     msg <- sprintf("[startup] read_all_data failed: %s", e$message)
-    message(msg)
-    startup_errors <<- c(startup_errors, msg)
+    log_msg(msg)
     tibble::tibble()
   }
 )
@@ -88,29 +102,52 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
+  # Use reactiveVal for error collection (properly scoped to session)
+  error_log <- reactiveVal(character())
+  
+  add_error <- function(msg) {
+    log_msg(msg)
+    error_log(c(error_log(), msg))
+  }
+  
   # Load data reactively with error handling
   all_data <- reactive({
+    log_msg("[reactive] Loading all_data...")
     tryCatch({
-      read_all_data(data_path)
+      df <- read_all_data(data_path)
+      log_msg(sprintf("[reactive] all_data loaded: %d rows", nrow(df)))
+      df
     }, error = function(e) {
       msg <- sprintf("[reactive] all_data load failed: %s", e$message)
-      message(msg)
-      startup_errors <<- c(startup_errors, msg)
+      add_error(msg)
       tibble::tibble()
     })
   })
   
   selected_data <- reactive({
+    log_msg(sprintf("[reactive] Filtering for selected_var: %s", input$selected_var))
     data <- all_data()
-    if (nrow(data) == 0) return(tibble::tibble())
-    if (!is.character(input$selected_var) || input$selected_var == "") return(tibble::tibble())
-    data %>% filter(name == input$selected_var)
+    if (nrow(data) == 0) {
+      log_msg("[reactive] selected_data: parent data is empty")
+      return(tibble::tibble())
+    }
+    if (!is.character(input$selected_var) || input$selected_var == "") {
+      log_msg("[reactive] selected_data: invalid input$selected_var")
+      return(tibble::tibble())
+    }
+    result <- data %>% filter(name == input$selected_var)
+    log_msg(sprintf("[reactive] selected_data result: %d rows", nrow(result)))
+    result
   })
 
   plot_cost_data <- reactive({
+    log_msg("[reactive] Computing plot_cost_data...")
     tryCatch({
       data <- selected_data()
-      if (nrow(data) == 0) return(tibble::tibble())
+      if (nrow(data) == 0) {
+        log_msg("[reactive] plot_cost_data: selected_data is empty")
+        return(tibble::tibble())
+      }
       
       df <- data %>%
         filter(type %in% c("q05_per_persoon", "q25_per_persoon", "mediaan_per_persoon", "q75_per_persoon", "q95_per_persoon")) %>%
@@ -123,60 +160,76 @@ server <- function(input, output, session) {
           values_fill = NA_real_
         )
 
-      df %>%
+      df <- df %>%
         mutate(t = factor(as.numeric(t), levels = sort(unique(as.numeric(t))))) %>%
         filter(!is.na(mediaan_per_persoon))
+      log_msg(sprintf("[reactive] plot_cost_data result: %d rows", nrow(df)))
+      df
     }, error = function(e) {
       msg <- sprintf("[plot_cost_data] failed: %s", e$message)
-      message(msg)
-      startup_errors <<- c(startup_errors, msg)
+      add_error(msg)
       tibble::tibble()
     })
   })
 
   plot_usage_data <- reactive({
+    log_msg("[reactive] Computing plot_usage_data...")
     tryCatch({
       data <- all_data()
-      if (nrow(data) == 0) return(tibble::tibble())
-      if (!is.character(input$selected_var) || input$selected_var == "") return(tibble::tibble())
+      if (nrow(data) == 0) {
+        log_msg("[reactive] plot_usage_data: all_data is empty")
+        return(tibble::tibble())
+      }
+      if (!is.character(input$selected_var) || input$selected_var == "") {
+        log_msg("[reactive] plot_usage_data: invalid input$selected_var")
+        return(tibble::tibble())
+      }
       
       usage_name <- find_gebruikt_name(input$selected_var, data = data)
+      log_msg(sprintf("[reactive] plot_usage_data: found usage_name='%s' for '%s'", 
+                      if (is.na(usage_name)) "NA" else usage_name, input$selected_var))
       if (is.na(usage_name)) {
+        log_msg(sprintf("[reactive] plot_usage_data: no usage variant found for '%s'", input$selected_var))
         return(tibble::tibble())
       }
 
-      data %>%
+      result <- data %>%
         filter(name == usage_name, type == "gemiddelde_per_persoon") %>%
         group_by(cohort, died, t) %>%
         summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
         mutate(t = factor(as.numeric(t), levels = sort(unique(as.numeric(t)))))
+      log_msg(sprintf("[reactive] plot_usage_data result: %d rows", nrow(result)))
+      result
     }, error = function(e) {
       msg <- sprintf("[plot_usage_data] failed: %s", e$message)
-      message(msg)
-      startup_errors <<- c(startup_errors, msg)
+      add_error(msg)
       tibble::tibble()
     })
   })
 
   output$app_log <- renderText({
-    if (length(startup_errors) > 0) {
-      paste(startup_errors, collapse = "\n")
+    errors <- error_log()
+    if (length(errors) > 0) {
+      paste("=== ERROR LOG ===\n", paste(errors, collapse = "\n"))
     } else {
-      "No startup errors detected."
+      "=== NO ERRORS ===\nApp is running normally. Check shiny_console.log for startup messages."
     }
   })
 
   if (plotly_installed) {
     output$plot_cost <- plotly::renderPlotly({
+      log_msg("[render] Rendering plot_cost with plotly...")
       tryCatch({
         df <- plot_cost_data()
         if (nrow(df) == 0) {
+          log_msg("[render] plot_cost: no data available")
           p <- ggplot() +
             geom_text(aes(0, 0, label = "Geen kosten-data beschikbaar."), size = 5) +
             xlab(NULL) + ylab(NULL) + theme_void()
           return(plotly::ggplotly(p))
         }
 
+        log_msg(sprintf("[render] plot_cost: rendering %d rows", nrow(df)))
         p <- ggplot(df, aes(x = factor(t), group = died, color = died, fill = died)) +
           geom_errorbar(aes(ymin = q05_per_persoon, ymax = q95_per_persoon),
                         position = position_dodge(width = 0.8), width = 0.2) +
@@ -195,8 +248,7 @@ server <- function(input, output, session) {
         plotly::ggplotly(p)
       }, error = function(e) {
         msg <- sprintf("[plot_cost render] %s", e$message)
-        message(msg)
-        startup_errors <<- c(startup_errors, msg)
+        add_error(msg)
         p <- ggplot() +
           geom_text(aes(0, 0, label = "Plot failed to render."), size = 5) +
           xlab(NULL) + ylab(NULL) + theme_void()
@@ -205,13 +257,16 @@ server <- function(input, output, session) {
     })
   } else {
     output$plot_cost <- renderPlot({
+      log_msg("[render] Rendering plot_cost with static ggplot...")
       tryCatch({
         df <- plot_cost_data()
         if (nrow(df) == 0) {
+          log_msg("[render] plot_cost: no data available")
           plot.new(); text(0.5, 0.5, "Geen kosten-data beschikbaar.", cex = 1.2)
           return()
         }
 
+        log_msg(sprintf("[render] plot_cost: rendering %d rows", nrow(df)))
         ggplot(df, aes(x = factor(t), group = died, color = died, fill = died)) +
           geom_errorbar(aes(ymin = q05_per_persoon, ymax = q95_per_persoon),
                         position = position_dodge(width = 0.8), width = 0.2) +
@@ -228,8 +283,7 @@ server <- function(input, output, session) {
           theme(axis.text.x = element_text(angle = 45, hjust = 1))
       }, error = function(e) {
         msg <- sprintf("[plot_cost static] %s", e$message)
-        message(msg)
-        startup_errors <<- c(startup_errors, msg)
+        add_error(msg)
         plot.new(); text(0.5, 0.5, "Plot render error.", cex = 1.2)
       })
     })
