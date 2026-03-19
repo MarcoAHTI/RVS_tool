@@ -230,4 +230,21 @@ if (exists("secure_app", mode = "function")) {
   message("secure_app function not found; running without secure_app")
 }
 
-shinyApp(app_ui, server)
+options(shiny.error = function() {
+  err <- geterrmessage()
+  message(sprintf("[shiny.error] %s", err))
+  writeLines(sprintf("[shiny.error] %s", err), con = "shiny_error.log")
+})
+
+safeRunApp <- function() {
+  tryCatch({
+    shinyApp(app_ui, server)
+  }, error = function(e) {
+    msg <- sprintf("[shinyApp] failed: %s", e$message)
+    message(msg)
+    writeLines(msg, con = "shiny_startup_error.log")
+    stop(e)
+  })
+}
+
+safeRunApp()
