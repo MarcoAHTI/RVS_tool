@@ -1,0 +1,11 @@
+[2026-03-19 08:48:52.141002] [startup] Starting Shiny app initialization
+[2026-03-19 08:48:52.99289] [read_all_data] Loaded 80424 rows from 7 sheets
+[2026-03-19 08:48:53.597835] [render] Rendering plot_cost with static ggplot...
+[2026-03-19 08:48:53.601741] [reactive] Computing plot_cost_data...
+[2026-03-19 08:48:53.604722] [reactive] Filtering for selected_var: bedragwlzzin
+[2026-03-19 08:48:53.610533] [reactive] Loading all_data...
+[2026-03-19 08:48:54.516426] [read_all_data] Loaded 80424 rows from 7 sheets
+[2026-03-19 08:48:54.519133] [reactive] all_data loaded: 80424 rows
+[2026-03-19 08:48:54.524604] [reactive] selected_data result: 13464 rows
+[2026-03-19 08:48:54.558979] [reactive] plot_cost_data result: 132 rows
+[2026-03-19 08:48:54.561233] [render] plot_cost: rendering 132 rows
