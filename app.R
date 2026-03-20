@@ -169,11 +169,22 @@ ui <- navbarPage(
                                        "Kosten per persoon" = "gemiddelde_per_persoon",
                                        "Aantal gebruikers" = "n_totaal_gebruikers"), 
                            selected = "gemiddelde_per_persoon"),
-               selectInput("mnd_jaar", "Jaar:", choices = c("2019", "2023"), selected = "2023"),
+               selectInput("mnd_jaar", "Jaar:", choices = c("2019", "2023", "Beide"), selected = "2023"),
                selectInput("mnd_pop", "Populatie (Doodsoorzaak):", choices = doodsoorzaken, selected = "all"),
                selectInput("mnd_vgl", "Kies vergelijking:", 
                            choices = c("Geen vergelijking", "Overleden vs. In leven (Controle)"), 
                            selected = "Overleden vs. In leven (Controle)"),
+               selectInput("mnd_grafiek", "Grafiektype:",
+                           choices = c("Staafgrafiek", "Lijngrafiek"),
+                           selected = "Staafgrafiek"),
+               selectInput("mnd_lijnmodus", "Lijngrafiek modus:",
+                           choices = c("Status (met/zonder controle)" = "status",
+                                       "Alle doodsoorzaken in 1 grafiek" = "doodsoorzaak",
+                                       "Totale populatie 2019 vs 2023" = "cohort"),
+                           selected = "status"),
+               selectizeInput("mnd_zichtbare_lijnen", "Zichtbare lijnen:",
+                              choices = NULL, selected = NULL, multiple = TRUE),
+               helpText("Tip: in lijngrafiekmodus kun je lijnen aan/uit zetten via 'Zichtbare lijnen'"),
                hr(),
                downloadButton("dl_maandelijks", "Download Data voor Think-cell")
              ),
@@ -348,9 +359,17 @@ server <- function(input, output, session) {
     df <- all_data() %>%
       filter(bin_size == "monthly",
              name == input$mnd_domein,
-             type == input$mnd_maatstaf,
-             cohort == as.numeric(input$mnd_jaar),
-             doodsoorzaak == input$mnd_pop)
+             type == input$mnd_maatstaf)
+    
+    if(input$mnd_jaar != "Beide") {
+      df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
+    }
+    
+    if(input$mnd_pop == "all") {
+      df <- df %>% filter(doodsoorzaak == "all")
+    } else {
+      df <- df %>% filter(doodsoorzaak == input$mnd_pop)
+    }
     
     if(input$mnd_vgl == "Geen vergelijking") {
       df <- df %>% filter(died == "Overleden")
@@ -360,14 +379,188 @@ server <- function(input, output, session) {
       mutate(t_numeric = as.numeric(t)) %>%
       arrange(desc(t_numeric))
   })
+
+  data_maandelijks_lijn <- reactive({
+    req(nrow(all_data()) > 0)
+    df <- all_data() %>%
+      filter(bin_size == "monthly",
+             name == input$mnd_domein,
+             type == input$mnd_maatstaf)
+    
+    log_msg(sprintf("[data_maandelijks_lijn] Base: %d rows (domein=%s, maatstaf=%s)", 
+                    nrow(df), input$mnd_domein, input$mnd_maatstaf))
+
+    has_all_pop <- any(df$doodsoorzaak == "all", na.rm = TRUE)
+
+    if (input$mnd_lijnmodus == "doodsoorzaak") {
+      if(input$mnd_jaar != "Beide") {
+        df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
+      }
+      df <- df %>% filter(doodsoorzaak != "all", died == "Overleden")
+    } else if (input$mnd_lijnmodus == "cohort") {
+      if (has_all_pop) {
+        df <- df %>% filter(doodsoorzaak == "all")
+      }
+      if(input$mnd_jaar != "Beide") {
+        df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
+      }
+      if(input$mnd_vgl == "Geen vergelijking") {
+        df <- df %>% filter(died == "Overleden")
+      }
+    } else {
+      if(input$mnd_jaar != "Beide") {
+        df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
+      }
+      if(input$mnd_pop == "all") {
+        if (has_all_pop) {
+          df <- df %>% filter(doodsoorzaak == "all")
+        }
+      } else {
+        df <- df %>% filter(doodsoorzaak == input$mnd_pop)
+      }
+      if(input$mnd_vgl == "Geen vergelijking") {
+        df <- df %>% filter(died == "Overleden")
+      }
+    }
+
+    df <- df %>%
+      mutate(t_numeric = as.numeric(t)) %>%
+      filter(!is.na(t_numeric), !is.na(value)) %>%
+      arrange(t_numeric)
+      
+    log_msg(sprintf("[data_maandelijks_lijn] Post-filter: %d rows", nrow(df)))
+    df
+  })
+
+  lijn_data_maandelijks <- reactive({
+    df <- data_maandelijks_lijn()
+    if (nrow(df) == 0) return(tibble::tibble())
+
+    if (input$mnd_lijnmodus == "doodsoorzaak") {
+      df <- df %>% mutate(lijn = doodsoorzaak)
+    } else if (input$mnd_lijnmodus == "cohort") {
+      df <- df %>% mutate(lijn = paste0("Cohort ", cohort, " - ", died))
+    } else {
+      df <- df %>% mutate(lijn = died)
+    }
+
+    df <- df %>%
+      mutate(lijn = trimws(as.character(lijn))) %>%
+      group_by(t_numeric, lijn) %>%
+      summarise(value = mean(value, na.rm = TRUE), .groups = "drop")
+    
+    # DEBUG: Print summarized data
+    log_msg(sprintf("[lijn_data_maandelijks] Summary: %d rows, lijnen: %s", 
+                    nrow(df), paste(unique(df$lijn), collapse=", ")))
+    df
+  })
+
+  lijn_choices_maandelijks <- reactive({
+    df <- data_maandelijks_lijn()
+    if (nrow(df) == 0) return(character(0))
+
+    if (input$mnd_lijnmodus == "doodsoorzaak") {
+      sort(unique(df$doodsoorzaak))
+    } else if (input$mnd_lijnmodus == "cohort") {
+      sort(unique(paste0("Cohort ", df$cohort, " - ", df$died)))
+    } else {
+      sort(unique(df$died))
+    }
+  })
+
+  observeEvent(list(lijn_choices_maandelijks(), input$mnd_grafiek), {
+    lijn_choices <- lijn_choices_maandelijks()
+
+    if (input$mnd_grafiek != "Lijngrafiek" || length(lijn_choices) == 0) {
+      freezeReactiveValue(input, "mnd_zichtbare_lijnen")
+      updateSelectizeInput(
+        session,
+        "mnd_zichtbare_lijnen",
+        choices = lijn_choices,
+        selected = character(0),
+        server = TRUE
+      )
+      return()
+    }
+
+    selected_lijnen <- isolate(input$mnd_zichtbare_lijnen)
+    if (is.null(selected_lijnen)) selected_lijnen <- character(0)
+
+    selected_lijnen <- intersect(selected_lijnen, lijn_choices)
+    if (length(selected_lijnen) == 0) {
+      selected_lijnen <- lijn_choices
+    }
+
+    freezeReactiveValue(input, "mnd_zichtbare_lijnen")
+    updateSelectizeInput(
+      session,
+      "mnd_zichtbare_lijnen",
+      choices = lijn_choices,
+      selected = selected_lijnen,
+      server = TRUE
+    )
+  }, ignoreInit = FALSE)
   
   output$plot_zorg_maandelijks <- plotly::renderPlotly({
-    df <- data_maandelijks()
-    p <- ggplot(df, aes(x = factor(t_numeric, levels = sort(unique(t_numeric))), y = value, fill = died)) +
-      geom_col(position = position_dodge()) +
-      theme_minimal() +
-      labs(title = paste("Maandelijkse Zorg:", input$mnd_domein), 
-           x = "Maanden voor overlijden (t)", y = "Waarde")
+    if (input$mnd_grafiek == "Lijngrafiek") {
+      df <- lijn_data_maandelijks()
+      
+      input_selection <- input$mnd_zichtbare_lijnen
+      available_lijnen <- unique(df$lijn)
+      
+      # Determine effective selection robustly
+      if (is.null(input_selection) || length(input_selection) == 0) {
+        selected_lijnen <- available_lijnen
+      } else {
+        # Check intersection with available lines to handle stale inputs
+        input_clean <- trimws(as.character(input_selection))
+        valid_selection <- intersect(input_clean, available_lijnen)
+        
+        if (length(valid_selection) > 0) {
+          selected_lijnen <- valid_selection
+        } else {
+          # If input selects nothing valid (stale), fallback to showing all
+          selected_lijnen <- available_lijnen
+        }
+      }
+      
+      log_msg(sprintf("[renderPlotly] Input: %s. Available: %s. Effective: %s", 
+              paste(input_selection, collapse=","), 
+              paste(available_lijnen, collapse=","),
+              paste(selected_lijnen, collapse=",")))
+
+      df <- df %>% filter(lijn %in% selected_lijnen)
+
+      if (nrow(df) == 0) {
+        log_msg("[renderPlotly] Empty DF after line filter")
+        p <- ggplot() +
+          geom_text(aes(0, 0, label = "Geen lijn-data beschikbaar voor de gekozen filters."), size = 5) +
+          xlab(NULL) + ylab(NULL) + theme_void()
+        return(plotly::ggplotly(p))
+      }
+
+      p <- ggplot(df, aes(x = t_numeric, y = value, color = lijn, group = lijn)) +
+        geom_line(linewidth = 1) +
+        geom_point(size = 2) +
+        theme_minimal() +
+        labs(
+          title = paste("Maandelijkse Zorg (Lijn):", input$mnd_domein),
+          x = "Maanden voor overlijden (t)",
+          y = "Waarde",
+          color = "Lijn"
+        )
+    } else {
+      df <- data_maandelijks()
+      p <- ggplot(df, aes(x = factor(t_numeric, levels = sort(unique(t_numeric))), y = value, fill = died)) +
+        geom_col(position = position_dodge()) +
+        theme_minimal() +
+        labs(title = paste("Maandelijkse Zorg:", input$mnd_domein), 
+             x = "Maanden voor overlijden (t)", y = "Waarde")
+      if (input$mnd_jaar == "Beide") {
+        p <- p + facet_wrap(~cohort, nrow = 1)
+      }
+    }
+
     plotly::ggplotly(p)
   })
   
