@@ -115,7 +115,7 @@ find_gebruikt_name <- function(name_choice, data) {
 
 # ===== UI DEFINITION =====
 ui <- navbarPage(
-  title = "RVS Tool Dummy Data Explorer",
+  title = "RVS Tool ",
   id = "main_nav",
   
   # --- TAB 1: Basispopulatie ---
