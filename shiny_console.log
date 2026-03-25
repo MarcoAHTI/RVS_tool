@@ -1,41 +1,6 @@
-[2026-03-20 16:25:01.624471] [startup] Initializing data...
-[2026-03-20 16:25:02.309484] [read_all_data] Loaded 80424 rows from 7 sheets
-[2026-03-20 16:25:02.316299] [startup] Initialization complete: 6 base names, 9 doodsoorzaken
-[2026-03-20 16:25:04.519706] [read_all_data] Loaded 80424 rows from 7 sheets
-[2026-03-20 16:25:04.761489] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:25:04.791245] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:25:08.541036] [read_all_data] Loaded 80424 rows from 7 sheets
-[2026-03-20 16:25:08.833302] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:25:08.868545] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:26:21.39859] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=n_totaal_gebruikers)
-[2026-03-20 16:26:21.414502] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:26:24.110219] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:26:24.138762] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:26:35.113324] [lijn_data_maandelijks] Summary: 66 rows, lijnen: In leven, Overleden
-[2026-03-20 16:26:35.174485] [renderPlotly] Input: . Available: In leven,Overleden. Effective: In leven,Overleden
-[2026-03-20 16:26:35.47468] [renderPlotly] Input: Overleden. Available: In leven,Overleden. Effective: Overleden
-[2026-03-20 16:27:43.457342] [renderPlotly] Input: Overleden,In leven. Available: In leven,Overleden. Effective: Overleden,In leven
-[2026-03-20 16:27:49.025728] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:27:49.09399] [data_maandelijks_lijn] Post-filter: 264 rows
-[2026-03-20 16:27:49.190482] [lijn_data_maandelijks] Summary: 264 rows, lijnen: Onbekend, Overig, Palliatief dementie, Palliatief hart & vaatziekten, Palliatief kanker, Palliatief luchtwegaandoening, Palliatief overig, Uitwendige oorzaken
-[2026-03-20 16:27:49.242874] [renderPlotly] Input: . Available: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Effective: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken
-[2026-03-20 16:27:50.142033] [renderPlotly] Input: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Available: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Effective: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken
-[2026-03-20 16:27:55.417805] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:27:55.447857] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:27:55.499905] [lijn_data_maandelijks] Summary: 66 rows, lijnen: Cohort 2023 - In leven, Cohort 2023 - Overleden
-[2026-03-20 16:27:55.564056] [renderPlotly] Input: . Available: Cohort 2023 - In leven,Cohort 2023 - Overleden. Effective: Cohort 2023 - In leven,Cohort 2023 - Overleden
-[2026-03-20 16:27:56.346133] [renderPlotly] Input: Cohort 2023 - In leven,Cohort 2023 - Overleden. Available: Cohort 2023 - In leven,Cohort 2023 - Overleden. Effective: Cohort 2023 - In leven,Cohort 2023 - Overleden
-[2026-03-20 16:27:59.032336] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:27:59.0821] [data_maandelijks_lijn] Post-filter: 264 rows
-[2026-03-20 16:27:59.16126] [lijn_data_maandelijks] Summary: 264 rows, lijnen: Onbekend, Overig, Palliatief dementie, Palliatief hart & vaatziekten, Palliatief kanker, Palliatief luchtwegaandoening, Palliatief overig, Uitwendige oorzaken
-[2026-03-20 16:27:59.213567] [renderPlotly] Input: . Available: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Effective: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken
-[2026-03-20 16:28:00.157503] [renderPlotly] Input: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Available: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken. Effective: Onbekend,Overig,Palliatief dementie,Palliatief hart & vaatziekten,Palliatief kanker,Palliatief luchtwegaandoening,Palliatief overig,Uitwendige oorzaken
-[2026-03-20 16:28:21.376681] [read_all_data] Loaded 80424 rows from 7 sheets
-[2026-03-20 16:28:22.230744] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:28:22.410613] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-20 16:28:22.635438] [render] Rendering butterfly chart...
-[2026-03-20 16:28:22.666325] [reactive] Computing butterfly data...
-[2026-03-20 16:28:22.735076] [reactive] butterfly data computed: 18 rows
-[2026-03-20 16:28:22.777834] [render] butterfly: rendering 18 rows with groups: Observed 2023, Control 2023
-[2026-03-20 16:28:59.211312] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-20 16:28:59.282284] [data_maandelijks_lijn] Post-filter: 132 rows
+[2026-03-24 17:15:43.419461] [startup] Initializing data...
+[2026-03-24 17:15:43.965092] [read_all_data] Loaded 80420 rows from 7 sheets
+[2026-03-24 17:15:43.967914] [startup] Initialization complete: 6 base names, 9 doodsoorzaken
+[2026-03-24 17:15:44.677579] [read_all_data] Loaded 80420 rows from 7 sheets
+[2026-03-24 17:15:44.752111] [data_maandelijks_lijn] Base: 1188 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
+[2026-03-24 17:15:44.757602] [data_maandelijks_lijn] Post-filter: 66 rows
