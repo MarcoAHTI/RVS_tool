@@ -49,11 +49,11 @@ if (getRversion() >= "2.15.1") {
     "cohort", "died", "n_totaal", "value", "name", "type", "t",
     "q05_per_persoon", "q25_per_persoon", "mediaan_per_persoon",
     "q75_per_persoon", "q95_per_persoon", "bin_size", "doodsoorzaak",
-    "t_numeric", "value_butterfly", "group"
+    "t_numeric", "value_butterfly", "group", "interventie", "interventie_category"
   ))
 }
 
-data_path <- "data/dummy_data_iteration_1/all_output.xlsx"
+data_path <- "data/data_iteration_1/all_output.xlsx"
 log_file <- "shiny_console.log"
 unlink(log_file)
 
@@ -113,6 +113,47 @@ find_gebruikt_name <- function(name_choice, data) {
   if (length(valid) > 0) valid[[1]] else NA_character_
 }
 
+# Helper function: Map interventions to their constituent names
+get_interventie_categories <- function(interventie_choice) {
+  mapping <- list(
+    "AAA" = c("AAA_kosten", "AAA_gebruikers"),
+    "Heup" = c("Heup_kosten", "Heup_gebruikers"),
+    "IC" = c("IC_kosten", "IC_gebruikers"),
+    "Diagnostiek" = c("Diagnostiek_kosten", "Diagnostiek_gebruikers"),
+    "Oncologie" = c("Oncologie_kosten", "Oncologie_gebruikers"),
+    "Polyfarmacie" = c("Polyfarmacie_kosten", "Polyfarmacie_gebruikers")
+  )
+  return(mapping[[interventie_choice]] %||% character(0))
+}
+
+# Helper function: Get maatstaf options
+get_maatstaf_options <- function() {
+  c(
+    "Totale kosten" = "sum_totaal_groep",
+    "Kosten per persoon" = "gemiddelde_per_persoon",
+    "Aantal gebruikers" = "n_totaal_gebruikers",
+    "Kosten per gebruiker" = "gemiddelde_per_gebruiker",
+    "Prevalentie per 100" = "prevalentie_per_100"
+  )
+}
+
+# Helper function: Process measurements for standardized filtering
+process_measurements <- function(data, maatstaf, handle_prevalentie = TRUE) {
+  if (is.null(data) || nrow(data) == 0) return(tibble::tibble())
+
+  # If maatstaf is prevalentie_per_100, handle specially
+  if (handle_prevalentie && maatstaf == "prevalentie_per_100") {
+    # Filter for data containing prevalentie_per_100 measurements
+    result <- data %>% filter(type == "prevalentie_per_100")
+  } else {
+    # Standard filtering
+    result <- data %>% filter(type == maatstaf)
+  }
+
+  return(result)
+}
+
+
 # ===== UI DEFINITION =====
 ui <- navbarPage(
   title = "blabala",
@@ -141,10 +182,12 @@ ui <- navbarPage(
                h4("Filters"),
                selectInput("tot_pop", "Populatie:", choices = doodsoorzaken, selected = "all"),
                selectInput("tot_jaar", "Jaar:", choices = c("2019", "2023", "Beide"), selected = "2023"),
-               selectInput("tot_maatstaf", "Maatstaf:", 
-                           choices = c("Totale kosten" = "sum_totaal_groep", 
+               selectInput("tot_maatstaf", "Maatstaf:",
+                           choices = c("Totale kosten" = "sum_totaal_groep",
                                        "Kosten per persoon" = "gemiddelde_per_persoon",
-                                       "Aantal gebruikers" = "n_totaal_gebruikers"), 
+                                       "Aantal gebruikers" = "n_totaal_gebruikers",
+                                       "Kosten per gebruiker" = "gemiddelde_per_gebruiker",
+                                       "Prevalentie per 100" = "prevalentie_per_100"),
                            selected = "gemiddelde_per_persoon"),
                selectInput("tot_vgl", "Kies vergelijking:", 
                            choices = c("Geen vergelijking", "Overleden vs. In leven (Controle)"), 
@@ -164,10 +207,12 @@ ui <- navbarPage(
              sidebarPanel(
                h4("Filters"),
                selectInput("mnd_domein", "Zorgdomein (Variabele):", choices = base_names, selected = base_names[1]),
-               selectInput("mnd_maatstaf", "Maatstaf:", 
-                           choices = c("Totale kosten" = "sum_totaal_groep", 
+               selectInput("mnd_maatstaf", "Maatstaf:",
+                           choices = c("Totale kosten" = "sum_totaal_groep",
                                        "Kosten per persoon" = "gemiddelde_per_persoon",
-                                       "Aantal gebruikers" = "n_totaal_gebruikers"), 
+                                       "Aantal gebruikers" = "n_totaal_gebruikers",
+                                       "Kosten per gebruiker" = "gemiddelde_per_gebruiker",
+                                       "Prevalentie per 100" = "prevalentie_per_100"),
                            selected = "gemiddelde_per_persoon"),
                selectInput("mnd_jaar", "Jaar:", choices = c("2019", "2023", "Beide"), selected = "2023"),
                selectInput("mnd_pop", "Populatie (Doodsoorzaak):", choices = doodsoorzaken, selected = "all"),
@@ -228,10 +273,12 @@ ui <- navbarPage(
              sidebarPanel(
                h4("Filters"),
                selectInput("butterfly_domein", "Zorgdomein:", choices = base_names, selected = base_names[1]),
-               selectInput("butterfly_maatstaf", "Maatstaf:", 
+               selectInput("butterfly_maatstaf", "Maatstaf:",
                            choices = c("Aantal gebruikers" = "n_totaal_gebruikers",
                                        "Kosten per gebruiker" = "gemiddelde_per_persoon",
-                                       "Totale kosten" = "sum_totaal_groep"), 
+                                       "Totale kosten" = "sum_totaal_groep",
+                                       "Kosten per gebruiker (alt)" = "gemiddelde_per_gebruiker",
+                                       "Prevalentie per 100" = "prevalentie_per_100"),
                            selected = "gemiddelde_per_persoon"),
                selectInput("butterfly_vgl", "Vergelijking (Links vs Rechts):",
                            choices = c("Geobserveerd 2023 vs. Controle 2023" = "obs_2023_vs_ctrl_2023",
@@ -246,8 +293,34 @@ ui <- navbarPage(
              )
            )
   ),
-  
-  # --- TAB 7: App Logs ---
+
+  # --- TAB 7: Interventies Analysis ---
+  tabPanel("Interventies",
+           sidebarLayout(
+             sidebarPanel(
+               h4("Filters"),
+               selectInput("int_interventie", "Selecteer interventie:",
+                           choices = c("AAA", "Heup", "IC", "Diagnostiek", "Oncologie", "Polyfarmacie"),
+                           selected = "AAA"),
+               selectInput("int_maatstaf", "Maatstaf:",
+                           choices = get_maatstaf_options(),
+                           selected = "gemiddelde_per_persoon"),
+               selectInput("int_jaar", "Jaar:",
+                           choices = c("2019", "2023", "Beide"),
+                           selected = "2023"),
+               selectInput("int_vgl", "Vergelijking:",
+                           choices = c("Geen vergelijking", "Overleden vs. In leven (Controle)"),
+                           selected = "Overleden vs. In leven (Controle)"),
+               hr(),
+               downloadButton("dl_interventies", "Download Data voor Think-cell")
+             ),
+             mainPanel(
+               plotlyOutput("plot_interventies", height = "600px")
+             )
+           )
+  ),
+
+  # --- TAB 8: App Logs ---
   tabPanel("Systeem Logs",
            verbatimTextOutput("app_log")
   )
@@ -318,18 +391,17 @@ server <- function(input, output, session) {
   # ==========================================
   data_totaal <- reactive({
     req(nrow(all_data()) > 0)
-    df <- all_data() %>%
-      filter(bin_size == "1000days", 
-             doodsoorzaak == input$tot_pop,
-             type == input$tot_maatstaf)
-    
+    df <- process_measurements(all_data(), input$tot_maatstaf) %>%
+      filter(bin_size == "1000days",
+             doodsoorzaak == input$tot_pop)
+
     if(input$tot_jaar != "Beide") {
       df <- df %>% filter(cohort == as.numeric(input$tot_jaar))
     }
     if(input$tot_vgl == "Geen vergelijking") {
       df <- df %>% filter(died == "Overleden")
     }
-    
+
     df %>%
       group_by(name, cohort, died) %>%
       summarise(waarde = mean(value, na.rm=TRUE), .groups = "drop")
@@ -356,25 +428,24 @@ server <- function(input, output, session) {
   # ==========================================
   data_maandelijks <- reactive({
     req(nrow(all_data()) > 0)
-    df <- all_data() %>%
+    df <- process_measurements(all_data(), input$mnd_maatstaf) %>%
       filter(bin_size == "monthly",
-             name == input$mnd_domein,
-             type == input$mnd_maatstaf)
-    
+             name == input$mnd_domein)
+
     if(input$mnd_jaar != "Beide") {
       df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
     }
-    
+
     if(input$mnd_pop == "all") {
       df <- df %>% filter(doodsoorzaak == "all")
     } else {
       df <- df %>% filter(doodsoorzaak == input$mnd_pop)
     }
-    
+
     if(input$mnd_vgl == "Geen vergelijking") {
       df <- df %>% filter(died == "Overleden")
     }
-    
+
     df %>%
       mutate(t_numeric = as.numeric(t)) %>%
       arrange(desc(t_numeric))
@@ -382,12 +453,11 @@ server <- function(input, output, session) {
 
   data_maandelijks_lijn <- reactive({
     req(nrow(all_data()) > 0)
-    df <- all_data() %>%
+    df <- process_measurements(all_data(), input$mnd_maatstaf) %>%
       filter(bin_size == "monthly",
-             name == input$mnd_domein,
-             type == input$mnd_maatstaf)
-    
-    log_msg(sprintf("[data_maandelijks_lijn] Base: %d rows (domein=%s, maatstaf=%s)", 
+             name == input$mnd_domein)
+
+    log_msg(sprintf("[data_maandelijks_lijn] Base: %d rows (domein=%s, maatstaf=%s)",
                     nrow(df), input$mnd_domein, input$mnd_maatstaf))
 
     has_all_pop <- any(df$doodsoorzaak == "all", na.rm = TRUE)
@@ -427,7 +497,7 @@ server <- function(input, output, session) {
       mutate(t_numeric = as.numeric(t)) %>%
       filter(!is.na(t_numeric), !is.na(value)) %>%
       arrange(t_numeric)
-      
+
     log_msg(sprintf("[data_maandelijks_lijn] Post-filter: %d rows", nrow(df)))
     df
   })
@@ -754,18 +824,17 @@ server <- function(input, output, session) {
         log_msg("[reactive] butterfly data: all_data is empty")
         return(tibble::tibble())
       }
-      
-      # Filter for 1000 days, selected domain and measure
-      df <- data %>%
+
+      # Filter for 1000 days, selected domain and measure using process_measurements
+      df <- process_measurements(data, input$butterfly_maatstaf) %>%
         filter(bin_size == "1000days",
-               name == input$butterfly_domein,
-               type == input$butterfly_maatstaf)
-      
+               name == input$butterfly_domein)
+
       if (nrow(df) == 0) {
         log_msg("[reactive] butterfly: no data for selected filters")
         return(tibble::tibble())
       }
-      
+
       # Parse comparison choice and create left/right groups
       if (input$butterfly_vgl == "obs_2023_vs_ctrl_2023") {
         # Left: Observed 2023, Right: Control 2023
@@ -786,21 +855,21 @@ server <- function(input, output, session) {
         left_label <- "Observed 2019"
         right_label <- "Control 2019"
       }
-      
+
       # Aggregate by doodsoorzaak
       left_agg <- left_filter %>%
         group_by(doodsoorzaak) %>%
         summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
         mutate(group = left_label, value_butterfly = -value)
-      
+
       right_agg <- right_filter %>%
         group_by(doodsoorzaak) %>%
         summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
         mutate(group = right_label, value_butterfly = value)
-      
+
       result <- bind_rows(left_agg, right_agg) %>%
         arrange(doodsoorzaak)
-      
+
       log_msg(sprintf("[reactive] butterfly data computed: %d rows", nrow(result)))
       result
     }, error = function(e) {
