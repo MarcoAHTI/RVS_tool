@@ -1,25 +1,6 @@
-[2026-03-26 10:24:10.817273] [startup] Initializing data...
-[2026-03-26 10:24:12.776008] [read_all_data] Loaded 258753 rows from 7 sheets
-[2026-03-26 10:24:12.801863] [startup] Initialization complete: 42 base names, 9 doodsoorzaken
-[2026-03-26 10:24:14.894152] [read_all_data] Loaded 258753 rows from 7 sheets
-[2026-03-26 10:24:15.169537] [data_maandelijks_lijn] Base: 1079 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-26 10:24:15.189367] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-26 10:24:17.683657] [read_all_data] Loaded 258753 rows from 7 sheets
-[2026-03-26 10:24:17.925591] [data_maandelijks_lijn] Base: 1079 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
-[2026-03-26 10:24:17.9357] [data_maandelijks_lijn] Post-filter: 66 rows
-[2026-03-26 10:24:21.559569] [data_maandelijks_lijn] Base: 0 rows (domein=zvwkziekenhuis, maatstaf=gemiddelde_per_persoon)
-[2026-03-26 10:24:21.572628] [data_maandelijks_lijn] Post-filter: 0 rows
-[2026-03-26 10:24:21.630323] [renderPlotly] No monthly data for this domain
-[2026-03-26 10:24:30.471522] [renderPlotly] No monthly data for this domain
-[2026-03-26 10:25:32.64233] [render] Rendering butterfly chart...
-[2026-03-26 10:25:32.646111] [reactive] Computing butterfly data...
-[2026-03-26 10:25:32.675033] [reactive] butterfly data computed: 17 rows
-[2026-03-26 10:25:32.689127] [render] butterfly: rendering 17 rows with groups: Control 2023, Observed 2023
-[2026-03-26 10:25:35.584466] [render] Rendering butterfly chart...
-[2026-03-26 10:25:35.63661] [reactive] Computing butterfly data...
-[2026-03-26 10:25:35.665711] [reactive] butterfly data computed: 18 rows
-[2026-03-26 10:25:35.677928] [render] butterfly: rendering 18 rows with groups: Observed 2023, Control 2023
-[2026-03-26 10:25:37.48254] [render] Rendering butterfly chart...
-[2026-03-26 10:25:37.494208] [reactive] Computing butterfly data...
-[2026-03-26 10:25:37.558616] [reactive] butterfly data computed: 18 rows
-[2026-03-26 10:25:37.571222] [render] butterfly: rendering 18 rows with groups: Observed 2023, Control 2023
+[2026-03-26 16:29:07.552995] [startup] Initializing data...
+[2026-03-26 16:29:10.824163] [read_all_data] Loaded 258753 rows from 7 sheets
+[2026-03-26 16:29:10.843059] [startup] Initialization complete: 42 base names, 9 doodsoorzaken
+[2026-03-26 16:29:14.2873] [read_all_data] Loaded 258753 rows from 7 sheets
+[2026-03-26 16:29:14.868787] [data_maandelijks_lijn] Base: 1079 rows (domein=bedragwlzzin, maatstaf=gemiddelde_per_persoon)
+[2026-03-26 16:29:14.89] [data_maandelijks_lijn] Post-filter: 66 rows

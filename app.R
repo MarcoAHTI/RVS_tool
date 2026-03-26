@@ -274,6 +274,12 @@ ui <- navbarPage(
              sidebarPanel(
                h4("Filters"),
                selectInput("cost_var", "Kies variabele (name):", choices = base_names, selected = base_names[1]),
+               selectInput("cost_bin_size", "Bin size:",
+                           choices = c("monthly", "1000days"),
+                           selected = "monthly"),
+               selectInput("cost_pop", "Populatie (Doodsoorzaak):",
+                           choices = doodsoorzaken,
+                           selected = "all"),
                helpText("Boxplot-achtig overzicht op basis van quantielen per cohort en status.")
              ),
              mainPanel(
@@ -288,6 +294,12 @@ ui <- navbarPage(
              sidebarPanel(
                h4("Filters"),
                selectInput("usage_var", "Kies variabele (name):", choices = base_names, selected = base_names[1]),
+               selectInput("usage_bin_size", "Bin size:",
+                           choices = c("monthly", "1000days"),
+                           selected = "monthly"),
+               selectInput("usage_pop", "Populatie (Doodsoorzaak):",
+                           choices = doodsoorzaken,
+                           selected = "all"),
                helpText("Gemiddeld gebruik per persoon over tijd per cohort en status.")
              ),
              mainPanel(
@@ -328,9 +340,10 @@ ui <- navbarPage(
            sidebarLayout(
              sidebarPanel(
                h4("Filters"),
-               selectInput("int_interventie", "Selecteer interventie:",
-                           choices = c("AAA", "Heup", "IC", "Diagnostiek", "Oncologie", "Polyfarmacie"),
-                           selected = "AAA"),
+               selectizeInput("int_interventie", "Selecteer interventie variabele(s):",
+                              choices = get_all_interventie_names(),
+                              selected = get_all_interventie_names()[1],
+                              multiple = TRUE),
                selectInput("int_maatstaf", "Maatstaf:",
                            choices = get_maatstaf_options(),
                            selected = "gemiddelde_per_persoon"),
@@ -765,6 +778,23 @@ server <- function(input, output, session) {
       log_msg("[reactive] selected_data: invalid input$cost_var")
       return(tibble::tibble())
     }
+
+    if (!is.null(input$cost_bin_size)) {
+      data <- data %>% filter(bin_size == input$cost_bin_size)
+    }
+    if (nrow(data) == 0) {
+      log_msg(sprintf("[reactive] selected_data: no rows after bin_size filter (%s)", input$cost_bin_size))
+      return(tibble::tibble())
+    }
+
+    if (!is.null(input$cost_pop)) {
+      data <- data %>% filter(doodsoorzaak == input$cost_pop)
+    }
+    if (nrow(data) == 0) {
+      log_msg(sprintf("[reactive] selected_data: no rows after doodsoorzaak filter (%s)", input$cost_pop))
+      return(tibble::tibble())
+    }
+
     result <- data %>% filter(name == input$cost_var)
     log_msg(sprintf("[reactive] selected_data result: %d rows", nrow(result)))
     result
@@ -856,32 +886,36 @@ server <- function(input, output, session) {
         log_msg("[reactive] plot_usage_data: invalid input$usage_var")
         return(tibble::tibble())
       }
-      
-      # First try to find usage variant
-      usage_name <- find_gebruikt_name(input$usage_var, data = data)
-      
-      # If no usage variant, check if the variable itself has gemiddelde_per_persoon type
-      if (is.na(usage_name)) {
-        log_msg(sprintf("[reactive] plot_usage_data: no usage variant for '%s', checking if variable has gemiddelde_per_persoon", input$usage_var))
-        check_direct <- data %>%
-          filter(name == input$usage_var, type == "gemiddelde_per_persoon")
-        
-        if (nrow(check_direct) > 0) {
-          log_msg(sprintf("[reactive] plot_usage_data: using '%s' directly (has gemiddelde_per_persoon)", input$usage_var))
-          usage_name <- input$usage_var
-        } else {
-          log_msg(sprintf("[reactive] plot_usage_data: no usage data available for '%s'", input$usage_var))
-          return(tibble::tibble())
-        }
-      } else {
-        log_msg(sprintf("[reactive] plot_usage_data: found usage_name='%s' for '%s'", usage_name, input$usage_var))
+
+      # Filter by selected bin size for this tab
+      if (!is.null(input$usage_bin_size)) {
+        data <- data %>% filter(bin_size == input$usage_bin_size)
+      }
+      if (nrow(data) == 0) {
+        log_msg(sprintf("[reactive] plot_usage_data: no rows after bin_size filter (%s)", input$usage_bin_size))
+        return(tibble::tibble())
+      }
+
+      # Filter by selected doodsoorzaak for this tab
+      if (!is.null(input$usage_pop)) {
+        data <- data %>% filter(doodsoorzaak == input$usage_pop)
+      }
+      if (nrow(data) == 0) {
+        log_msg(sprintf("[reactive] plot_usage_data: no rows after doodsoorzaak filter (%s)", input$usage_pop))
+        return(tibble::tibble())
       }
 
       result <- data %>%
-        filter(name == usage_name, type == "gemiddelde_per_persoon") %>%
+        filter(name == input$usage_var, type == "gebruikt_per_persoon") %>%
         group_by(cohort, died, t) %>%
         summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
         mutate(t = factor(as.numeric(t), levels = sort(unique(as.numeric(t)))))
+
+      if (nrow(result) == 0) {
+        log_msg(sprintf("[reactive] plot_usage_data: no gebruikt_per_persoon data for '%s'", input$usage_var))
+        return(tibble::tibble())
+      }
+
       log_msg(sprintf("[reactive] plot_usage_data result: %d rows", nrow(result)))
       result
     }, error = function(e) {
@@ -909,7 +943,7 @@ server <- function(input, output, session) {
         facet_wrap(~cohort, nrow = 1) +
         labs(
           title = paste("Gebruikt gemiddeld per persoon voor", input$usage_var),
-          x = "t", y = "gemiddelde", fill = "Status"
+          x = "t", y = "Gebruikt per persoon", fill = "Status"
         ) +
         theme_minimal() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -1086,47 +1120,42 @@ server <- function(input, output, session) {
   # ==========================================
   data_interventies <- reactive({
     req(nrow(all_data()) > 0)
-    interventie_cats <- get_interventie_categories()
-    selected_interventie <- input$int_interventie
+    selected_interventies <- input$int_interventie
 
-    if (is.null(selected_interventie) || !(selected_interventie %in% names(interventie_cats))) {
+    if (is.null(selected_interventies) || length(selected_interventies) == 0) {
       return(tibble::tibble())
     }
 
-    # Get the names for this intervention
-    interventie_names <- interventie_cats[[selected_interventie]]
-
     # Use process_measurements to handle the maatstaf filtering
     df <- process_measurements(all_data(), input$int_maatstaf) %>%
-      filter(bin_size == "1000days")
+      filter(bin_size == "1000days",
+             doodsoorzaak == "all")
 
-    # For prevalentie_per_100, the names will have "gebruik_" or "heeft_" prefix
-    # For other measurements, we need to exclude those prefixed variants
+    # Filter by all selected variable names
     if (input$int_maatstaf == "prevalentie_per_100") {
-      # For prevalentie, find the "gebruik_" or "heeft_" variants of interventie names
-      available_names <- unique(df$name)
+      # For prevalentie, find the "gebruik_" or "heeft_" variants of selected names
       matching_names <- c()
-      for (int_name in interventie_names) {
-        variant <- find_gebruikt_name(int_name, df)
+      for (selected_name in selected_interventies) {
+        variant <- find_gebruikt_name(selected_name, df)
         if (!is.na(variant)) {
           matching_names <- c(matching_names, variant)
         }
       }
       if (length(matching_names) == 0) {
-        # No prevalentie data for this intervention
+        # No prevalentie data for selected variables
         return(tibble::tibble())
       }
       df <- df %>% filter(name %in% matching_names)
     } else {
-      # For other measurements, filter by exact name and exclude preferred variants
+      # For other measurements, filter by all selected names
       df <- df %>%
-        filter(name %in% interventie_names,
+        filter(name %in% selected_interventies,
                !startsWith(name, "gebruik") & !startsWith(name, "heeft"))
     }
 
     if (nrow(df) == 0) {
-      log_msg(sprintf("[data_interventies] No data for interventie=%s, maatstaf=%s",
-                      selected_interventie, input$int_maatstaf))
+      log_msg(sprintf("[data_interventies] No data for selected interventies, maatstaf=%s",
+                      input$int_maatstaf))
       return(tibble::tibble())
     }
 
@@ -1143,8 +1172,7 @@ server <- function(input, output, session) {
     # else: "Geobserveerd vs. Controle" - keep both
 
     result <- df %>%
-      group_by(name, cohort, died) %>%
-      summarise(waarde = mean(value, na.rm=TRUE), .groups = "drop")
+      mutate(waarde = value)
 
     # Multiply by 100 for prevalentie_per_100 to convert from decimal to percentage
     if (input$int_maatstaf == "prevalentie_per_100") {
@@ -1163,13 +1191,13 @@ server <- function(input, output, session) {
       return(plotly::ggplotly(p))
     }
 
-    p <- ggplot(df, aes(x = reorder(name, -waarde), y = waarde, fill = died)) +
+    p <- ggplot(df, aes(x = name, y = waarde, fill = died)) +
       geom_col(position = position_dodge()) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
       labs(
-        title = paste("Curatieve Interventies:", input$int_interventie),
-        x = "Interventie Uitkomst",
+        title = "Curatieve Interventies",
+        x = "Interventie",
         y = "Waarde",
         fill = "Status"
       )
