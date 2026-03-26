@@ -90,7 +90,7 @@ all_data_initial <- tryCatch(
 )
 
 base_names <- if (nrow(all_data_initial) > 0) {
-  sort(unique(all_data_initial$name[!startsWith(all_data_initial$name, "gebruik")]))
+  sort(unique(all_data_initial$name[!startsWith(all_data_initial$name, "gebruik") & !startsWith(all_data_initial$name, "heeft")]))
 } else {
   character(0)
 }
@@ -107,9 +107,19 @@ log_msg(sprintf("[startup] Initialization complete: %d base names, %d doodsoorza
 # ===== HELPER FUNCTIONS =====
 find_gebruikt_name <- function(name_choice, data) {
   if (is.null(data) || nrow(data) == 0) return(NA_character_)
-  candidate1 <- paste0("gebruik", name_choice)
-  candidate2 <- paste0(name_choice, "_gebruikt")
-  valid <- intersect(c(candidate1, candidate2), unique(data$name))
+  print(unique(data$name))
+
+  # Generate all possible naming conventions
+  candidates <- c(
+    paste0("gebruik", name_choice),         # gebruikbedragwlzzin
+    paste0("gebruikt_", name_choice),       # gebruik_bedragwlzzin
+    paste0(name_choice, "_gebruik"),        # bedragwlzzin_gebruik
+    paste0("heeft", name_choice),           # heeftbedragwlzzin
+    paste0("heeft_", name_choice),          # heeft_bedragwlzzin
+    paste0(name_choice, "_heeft")           # bedragwlzzin_heeft
+  )
+
+  valid <- intersect(candidates, unique(data$name))
   if (length(valid) > 0) valid[[1]] else NA_character_
 }
 
@@ -148,10 +158,10 @@ process_measurements <- function(data, maatstaf, handle_prevalentie = TRUE) {
 
   # If maatstaf is prevalentie_per_100, handle specially
   if (handle_prevalentie && maatstaf == "prevalentie_per_100") {
-    # Prevalentie uses gebruik_ prefixed names with gemiddelde_per_persoon type
+    # Prevalentie uses gebruik_ or heeft_ prefixed names with gemiddelde_per_persoon type
     result <- data %>%
       filter(type == "gemiddelde_per_persoon",
-             startsWith(name, "gebruik")) %>%
+             (startsWith(name, "gebruik") | startsWith(name, "heeft"))) %>%
       mutate(type = "prevalentie_per_100")
   } else {
     # Standard filtering
@@ -409,17 +419,21 @@ server <- function(input, output, session) {
   # SERVER LOGIC: TAB 2 - Zorg Totaal 1000 dgn
   # ==========================================
 
-  # Update variable choices for tot_variables (exclude intervention variables by default)
+  # Update variable choices for tot_variables (exclude intervention variables and gebruik_/heeft_ by default)
   observeEvent(nrow(all_data()) > 0, {
     all_vars <- sort(unique(all_data()$name))
     intervention_names <- get_all_interventie_names()
-    non_intervention_vars <- setdiff(all_vars, intervention_names)
+    # Exclude interventies, gebruik_, and heeft_ prefixed variables
+    clean_vars <- all_vars[!all_vars %in% intervention_names &
+                           !startsWith(all_vars, "gebruik") &
+                           !startsWith(all_vars, "heeft")]
+    clean_vars <- sort(clean_vars)
 
     updateSelectizeInput(
       session,
       "tot_variables",
-      choices = all_vars,
-      selected = non_intervention_vars,
+      choices = clean_vars,
+      selected = clean_vars,
       server = TRUE
     )
   }, ignoreInit = FALSE)
@@ -430,8 +444,12 @@ server <- function(input, output, session) {
       filter(bin_size == "1000days",
              doodsoorzaak == input$tot_pop)
 
-    # Filter by selected variables
-    if (!is.null(input$tot_variables) && length(input$tot_variables) > 0) {
+    # Handle variable filtering based on measurement type
+    if (input$tot_maatstaf == "prevalentie_per_100") {
+      # For prevalentie, only show gebruik_ and heeft_ prefixed variables
+      df <- df %>% filter(startsWith(name, "gebruik") | startsWith(name, "heeft"))
+    } else if (!is.null(input$tot_variables) && length(input$tot_variables) > 0) {
+      # For other measurements, filter by selected variables
       df <- df %>% filter(name %in% input$tot_variables)
     }
 
@@ -442,9 +460,16 @@ server <- function(input, output, session) {
       df <- df %>% filter(died == "Overleden")
     }
 
-    df %>%
+    result <- df %>%
       group_by(name, cohort, died) %>%
       summarise(waarde = mean(value, na.rm=TRUE), .groups = "drop")
+
+    # Multiply by 100 for prevalentie_per_100 to convert from decimal to percentage
+    if (input$tot_maatstaf == "prevalentie_per_100") {
+      result <- result %>% mutate(waarde = waarde * 100)
+    }
+
+    result
   })
   
   output$plot_zorg_totaal <- plotly::renderPlotly({
@@ -469,8 +494,21 @@ server <- function(input, output, session) {
   data_maandelijks <- reactive({
     req(nrow(all_data()) > 0)
     df <- process_measurements(all_data(), input$mnd_maatstaf) %>%
-      filter(bin_size == "monthly",
-             name == input$mnd_domein)
+      filter(bin_size == "monthly")
+
+    # For prevalentie_per_100, we need to find the gebruik_/heeft_ variant of the domain
+    if (input$mnd_maatstaf == "prevalentie_per_100") {
+      target_name <- find_gebruikt_name(input$mnd_domein, df)
+      print(target_name)
+      if (is.na(target_name)) {
+        # If no gebruik_/heeft_ variant found, return empty
+        return(tibble::tibble())
+      }
+      df <- df %>% filter(name == target_name)
+    } else {
+      # For other measurements, use the selected domain directly
+      df <- df %>% filter(name == input$mnd_domein)
+    }
 
     if(input$mnd_jaar != "Beide") {
       df <- df %>% filter(cohort == as.numeric(input$mnd_jaar))
@@ -486,16 +524,35 @@ server <- function(input, output, session) {
       df <- df %>% filter(died == "Overleden")
     }
 
-    df %>%
+    result <- df %>%
       mutate(t_numeric = as.numeric(t)) %>%
       arrange(desc(t_numeric))
+
+    # Multiply by 100 for prevalentie_per_100
+    if (input$mnd_maatstaf == "prevalentie_per_100") {
+      result <- result %>% mutate(value = value * 100)
+    }
+
+    result
   })
 
   data_maandelijks_lijn <- reactive({
     req(nrow(all_data()) > 0)
     df <- process_measurements(all_data(), input$mnd_maatstaf) %>%
-      filter(bin_size == "monthly",
-             name == input$mnd_domein)
+      filter(bin_size == "monthly")
+
+    # For prevalentie_per_100, we need to find the gebruik_/heeft_ variant of the domain
+    if (input$mnd_maatstaf == "prevalentie_per_100") {
+      target_name <- find_gebruikt_name(input$mnd_domein, df)
+      if (is.na(target_name)) {
+        # If no gebruik_/heeft_ variant found, return empty
+        return(tibble::tibble())
+      }
+      df <- df %>% filter(name == target_name)
+    } else {
+      # For other measurements, use the selected domain directly
+      df <- df %>% filter(name == input$mnd_domein)
+    }
 
     log_msg(sprintf("[data_maandelijks_lijn] Base: %d rows (domein=%s, maatstaf=%s)",
                     nrow(df), input$mnd_domein, input$mnd_maatstaf))
@@ -558,9 +615,14 @@ server <- function(input, output, session) {
       mutate(lijn = trimws(as.character(lijn))) %>%
       group_by(t_numeric, lijn) %>%
       summarise(value = mean(value, na.rm = TRUE), .groups = "drop")
-    
+
+    # Multiply by 100 for prevalentie_per_100 to convert from decimal to percentage
+    if (input$mnd_maatstaf == "prevalentie_per_100") {
+      df <- df %>% mutate(value = value * 100)
+    }
+
     # DEBUG: Print summarized data
-    log_msg(sprintf("[lijn_data_maandelijks] Summary: %d rows, lijnen: %s", 
+    log_msg(sprintf("[lijn_data_maandelijks] Summary: %d rows, lijnen: %s",
                     nrow(df), paste(unique(df$lijn), collapse=", ")))
     df
   })
@@ -877,8 +939,20 @@ server <- function(input, output, session) {
 
       # Filter for 1000 days, selected domain and measure using process_measurements
       df <- process_measurements(data, input$butterfly_maatstaf) %>%
-        filter(bin_size == "1000days",
-               name == input$butterfly_domein)
+        filter(bin_size == "1000days")
+
+      # For prevalentie_per_100, we need to find the gebruik_/heeft_ variant of the domain
+      if (input$butterfly_maatstaf == "prevalentie_per_100") {
+        target_name <- find_gebruikt_name(input$butterfly_domein, df)
+        if (is.na(target_name)) {
+          # If no gebruik_/heeft_ variant found, return empty
+          return(tibble::tibble())
+        }
+        df <- df %>% filter(name == target_name)
+      } else {
+        # For other measurements, use the selected domain directly
+        df <- df %>% filter(name == input$butterfly_domein)
+      }
 
       if (nrow(df) == 0) {
         log_msg("[reactive] butterfly: no data for selected filters")
@@ -919,6 +993,11 @@ server <- function(input, output, session) {
 
       result <- bind_rows(left_agg, right_agg) %>%
         arrange(doodsoorzaak)
+
+      # Multiply by 100 for prevalentie_per_100 to convert from decimal to percentage
+      if (input$butterfly_maatstaf == "prevalentie_per_100") {
+        result <- result %>% mutate(value_butterfly = value_butterfly * 100)
+      }
 
       log_msg(sprintf("[reactive] butterfly data computed: %d rows", nrow(result)))
       result
@@ -1019,9 +1098,31 @@ server <- function(input, output, session) {
 
     # Use process_measurements to handle the maatstaf filtering
     df <- process_measurements(all_data(), input$int_maatstaf) %>%
-      filter(bin_size == "1000days",
-             name %in% interventie_names,
-             !startsWith(name, "gebruik"))  # Exclude "gebruik_" prefixed variants for non-prevalentie
+      filter(bin_size == "1000days")
+
+    # For prevalentie_per_100, the names will have "gebruik_" or "heeft_" prefix
+    # For other measurements, we need to exclude those prefixed variants
+    if (input$int_maatstaf == "prevalentie_per_100") {
+      # For prevalentie, find the "gebruik_" or "heeft_" variants of interventie names
+      available_names <- unique(df$name)
+      matching_names <- c()
+      for (int_name in interventie_names) {
+        variant <- find_gebruikt_name(int_name, df)
+        if (!is.na(variant)) {
+          matching_names <- c(matching_names, variant)
+        }
+      }
+      if (length(matching_names) == 0) {
+        # No prevalentie data for this intervention
+        return(tibble::tibble())
+      }
+      df <- df %>% filter(name %in% matching_names)
+    } else {
+      # For other measurements, filter by exact name and exclude preferred variants
+      df <- df %>%
+        filter(name %in% interventie_names,
+               !startsWith(name, "gebruik") & !startsWith(name, "heeft"))
+    }
 
     if (nrow(df) == 0) {
       log_msg(sprintf("[data_interventies] No data for interventie=%s, maatstaf=%s",
@@ -1041,9 +1142,16 @@ server <- function(input, output, session) {
     }
     # else: "Geobserveerd vs. Controle" - keep both
 
-    df %>%
+    result <- df %>%
       group_by(name, cohort, died) %>%
       summarise(waarde = mean(value, na.rm=TRUE), .groups = "drop")
+
+    # Multiply by 100 for prevalentie_per_100 to convert from decimal to percentage
+    if (input$int_maatstaf == "prevalentie_per_100") {
+      result <- result %>% mutate(waarde = waarde * 100)
+    }
+
+    result
   })
 
   output$plot_interventies <- plotly::renderPlotly({
