@@ -161,6 +161,12 @@ process_measurements <- function(data, maatstaf, handle_prevalentie = TRUE) {
   return(result)
 }
 
+# Helper function: Get all intervention variable names
+get_all_interventie_names <- function() {
+  cats <- get_interventie_categories()
+  unique(unlist(cats))
+}
+
 
 # ===== UI DEFINITION =====
 ui <- navbarPage(
@@ -197,7 +203,12 @@ ui <- navbarPage(
                                        "Kosten per gebruiker" = "gemiddelde_per_gebruiker",
                                        "Prevalentie per 100" = "prevalentie_per_100"),
                            selected = "gemiddelde_per_persoon"),
-               selectInput("tot_vgl", "Kies vergelijking:", 
+               selectizeInput("tot_variables", "Zorgvariabelen:",
+                              choices = NULL,
+                              selected = NULL,
+                              multiple = TRUE,
+                              options = list(placeholder = "Alle (behalve interventies)")),
+               selectInput("tot_vgl", "Kies vergelijking:",
                            choices = c("Geen vergelijking", "Overleden vs. In leven (Controle)"), 
                            selected = "Overleden vs. In leven (Controle)"),
                hr(),
@@ -397,11 +408,32 @@ server <- function(input, output, session) {
   # ==========================================
   # SERVER LOGIC: TAB 2 - Zorg Totaal 1000 dgn
   # ==========================================
+
+  # Update variable choices for tot_variables (exclude intervention variables by default)
+  observeEvent(nrow(all_data()) > 0, {
+    all_vars <- sort(unique(all_data()$name))
+    intervention_names <- get_all_interventie_names()
+    non_intervention_vars <- setdiff(all_vars, intervention_names)
+
+    updateSelectizeInput(
+      session,
+      "tot_variables",
+      choices = all_vars,
+      selected = non_intervention_vars,
+      server = TRUE
+    )
+  }, ignoreInit = FALSE)
+
   data_totaal <- reactive({
     req(nrow(all_data()) > 0)
     df <- process_measurements(all_data(), input$tot_maatstaf) %>%
       filter(bin_size == "1000days",
              doodsoorzaak == input$tot_pop)
+
+    # Filter by selected variables
+    if (!is.null(input$tot_variables) && length(input$tot_variables) > 0) {
+      df <- df %>% filter(name %in% input$tot_variables)
+    }
 
     if(input$tot_jaar != "Beide") {
       df <- df %>% filter(cohort == as.numeric(input$tot_jaar))
