@@ -114,16 +114,21 @@ find_gebruikt_name <- function(name_choice, data) {
 }
 
 # Helper function: Map interventions to their constituent names
-get_interventie_categories <- function(interventie_choice) {
-  mapping <- list(
-    "AAA" = c("AAA_kosten", "AAA_gebruikers"),
-    "Heup" = c("Heup_kosten", "Heup_gebruikers"),
-    "IC" = c("IC_kosten", "IC_gebruikers"),
-    "Diagnostiek" = c("Diagnostiek_kosten", "Diagnostiek_gebruikers"),
-    "Oncologie" = c("Oncologie_kosten", "Oncologie_gebruikers"),
-    "Polyfarmacie" = c("Polyfarmacie_kosten", "Polyfarmacie_gebruikers")
+get_interventie_categories <- function() {
+  list(
+    "AAA" = c("kosten_aaa_0303_0406_operatie", "kosten_aaa_0303_0406_totaal"),
+    "Heup" = c("kosten_heup_0303_0218_operatie", "kosten_heup_0303_0218_prothese", "kosten_heup_0303_0218_totaal",
+               "kosten_heup_0303_0219_operatie", "kosten_heup_0303_0219_totaal",
+               "kosten_heup_0305_3019_operatie", "kosten_heup_0305_3019_prothese", "kosten_heup_0305_3019_totaal",
+               "kosten_heup_0305_3020_operatie", "kosten_heup_0305_3020_totaal", "kosten_heupprothese"),
+    "IC" = c("kosten_add_on_ic"),
+    "Diagnostiek" = c("kosten_eerstelijn_zpk_4", "kosten_eerstelijn_zpk_7", "kosten_eerstelijn_zpk_8",
+                      "kosten_eerstelijn_zpk_9", "kosten_eerstelijn_zpk_10", "kosten_eerstelijn_zpk_11",
+                      "kosten_eerstelijn_zpk_4_7_11", "kosten_overig_tweedelijn_zpk_4", "kosten_overig_tweedelijn_zpk_7",
+                      "kosten_overig_tweedelijn_zpk_10", "kosten_overig_tweedelijn_zpk_11", "kosten_overig_tweedelijn_zpk_4_7_11"),
+    "Oncologie" = c("kosten_oncolgie_chemo", "kosten_oncolgie_immuno"),
+    "Polyfarmacie" = c("gebruikt_minstens5_atc4")
   )
-  return(mapping[[interventie_choice]] %||% character(0))
 }
 
 # Helper function: Get maatstaf options
@@ -143,8 +148,11 @@ process_measurements <- function(data, maatstaf, handle_prevalentie = TRUE) {
 
   # If maatstaf is prevalentie_per_100, handle specially
   if (handle_prevalentie && maatstaf == "prevalentie_per_100") {
-    # Filter for data containing prevalentie_per_100 measurements
-    result <- data %>% filter(type == "prevalentie_per_100")
+    # Prevalentie uses gebruik_ prefixed names with gemiddelde_per_persoon type
+    result <- data %>%
+      filter(type == "gemiddelde_per_persoon",
+             startsWith(name, "gebruik")) %>%
+      mutate(type = "prevalentie_per_100")
   } else {
     # Standard filtering
     result <- data %>% filter(type == maatstaf)
@@ -351,10 +359,10 @@ server <- function(input, output, session) {
   # ==========================================
   data_basis <- reactive({
     req(nrow(all_data()) > 0)
-    df <- all_data() %>% 
+    df <- all_data() %>%
       filter(bin_size == "1000days", type == "n_totaal_gebruikers") %>%
-      # Use an arbitrary domain just to get the distinct populations
-      filter(name == base_names[1])
+      # Use zvwktotaal which has complete population data for all doodsoorzaken
+      filter(name == "zvwktotaal")
     
     if(input$pop_jaar != "2019 + 2023") {
       df <- df %>% filter(cohort == as.numeric(input$pop_jaar))
@@ -574,10 +582,10 @@ server <- function(input, output, session) {
   output$plot_zorg_maandelijks <- plotly::renderPlotly({
     if (input$mnd_grafiek == "Lijngrafiek") {
       df <- lijn_data_maandelijks()
-      
+
       input_selection <- input$mnd_zichtbare_lijnen
       available_lijnen <- unique(df$lijn)
-      
+
       # Determine effective selection robustly
       if (is.null(input_selection) || length(input_selection) == 0) {
         selected_lijnen <- available_lijnen
@@ -585,7 +593,7 @@ server <- function(input, output, session) {
         # Check intersection with available lines to handle stale inputs
         input_clean <- trimws(as.character(input_selection))
         valid_selection <- intersect(input_clean, available_lijnen)
-        
+
         if (length(valid_selection) > 0) {
           selected_lijnen <- valid_selection
         } else {
@@ -593,9 +601,9 @@ server <- function(input, output, session) {
           selected_lijnen <- available_lijnen
         }
       }
-      
-      log_msg(sprintf("[renderPlotly] Input: %s. Available: %s. Effective: %s", 
-              paste(input_selection, collapse=","), 
+
+      log_msg(sprintf("[renderPlotly] Input: %s. Available: %s. Effective: %s",
+              paste(input_selection, collapse=","),
               paste(available_lijnen, collapse=","),
               paste(selected_lijnen, collapse=",")))
 
@@ -621,10 +629,20 @@ server <- function(input, output, session) {
         )
     } else {
       df <- data_maandelijks()
+
+      # Check if data is empty and show message
+      if (nrow(df) == 0) {
+        log_msg("[renderPlotly] No monthly data for this domain")
+        p <- ggplot() +
+          geom_text(aes(0, 0, label = "Geen maandelijkse data beschikbaar voor deze domein.\nControleer of de domein maandelijke metingen bevat."), size = 4) +
+          xlab(NULL) + ylab(NULL) + theme_void()
+        return(plotly::ggplotly(p))
+      }
+
       p <- ggplot(df, aes(x = factor(t_numeric, levels = sort(unique(t_numeric))), y = value, fill = died)) +
         geom_col(position = position_dodge()) +
         theme_minimal() +
-        labs(title = paste("Maandelijkse Zorg:", input$mnd_domein), 
+        labs(title = paste("Maandelijkse Zorg:", input$mnd_domein),
              x = "Maanden voor overlijden (t)", y = "Waarde")
       if (input$mnd_jaar == "Beide") {
         p <- p + facet_wrap(~cohort, nrow = 1)
@@ -951,9 +969,85 @@ server <- function(input, output, session) {
     filename = function() { paste("zorg_butterfly-", Sys.Date(), ".csv", sep="") },
     content = function(file) { write.csv2(data_butterfly(), file, row.names = FALSE) }
   )
-  
+
   # ==========================================
-  # SERVER LOGIC: TAB 7 - Logs
+  # SERVER LOGIC: TAB 7 - Interventies
+  # ==========================================
+  data_interventies <- reactive({
+    req(nrow(all_data()) > 0)
+    interventie_cats <- get_interventie_categories()
+    selected_interventie <- input$int_interventie
+
+    if (is.null(selected_interventie) || !(selected_interventie %in% names(interventie_cats))) {
+      return(tibble::tibble())
+    }
+
+    # Get the names for this intervention
+    interventie_names <- interventie_cats[[selected_interventie]]
+
+    # Use process_measurements to handle the maatstaf filtering
+    df <- process_measurements(all_data(), input$int_maatstaf) %>%
+      filter(bin_size == "1000days",
+             name %in% interventie_names,
+             !startsWith(name, "gebruik"))  # Exclude "gebruik_" prefixed variants for non-prevalentie
+
+    if (nrow(df) == 0) {
+      log_msg(sprintf("[data_interventies] No data for interventie=%s, maatstaf=%s",
+                      selected_interventie, input$int_maatstaf))
+      return(tibble::tibble())
+    }
+
+    if (input$int_jaar != "Beide") {
+      df <- df %>% filter(cohort == as.numeric(input$int_jaar))
+    }
+
+    # Apply comparison filter
+    if (input$int_vgl == "Geen vergelijking") {
+      df <- df %>% filter(died == "Overleden")
+    } else if (input$int_vgl == "Geobserveerd 2019 vs. Geobserveerd 2023") {
+      df <- df %>% filter(died == "Overleden")
+    }
+    # else: "Geobserveerd vs. Controle" - keep both
+
+    df %>%
+      group_by(name, cohort, died) %>%
+      summarise(waarde = mean(value, na.rm=TRUE), .groups = "drop")
+  })
+
+  output$plot_interventies <- plotly::renderPlotly({
+    df <- data_interventies()
+    if (nrow(df) == 0) {
+      p <- ggplot() +
+        geom_text(aes(0, 0, label = "Geen data beschikbaar voor deze interventie.\nControleer of de interventie data bevat voor de gekozen filters."), size = 4) +
+        xlab(NULL) + ylab(NULL) + theme_void()
+      return(plotly::ggplotly(p))
+    }
+
+    p <- ggplot(df, aes(x = reorder(name, -waarde), y = waarde, fill = died)) +
+      geom_col(position = position_dodge()) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      labs(
+        title = paste("Curatieve Interventies:", input$int_interventie),
+        x = "Interventie Uitkomst",
+        y = "Waarde",
+        fill = "Status"
+      )
+
+    if (input$int_jaar == "Beide") {
+      p <- p + facet_wrap(~cohort, nrow = 1)
+    }
+
+    plotly::ggplotly(p)
+  })
+
+  output$dl_interventies <- downloadHandler(
+    filename = function() { paste("interventies-", Sys.Date(), ".csv", sep="") },
+    content = function(file) { write.csv2(data_interventies(), file, row.names = FALSE) }
+  )
+
+  # ==========================================
+  # SERVER LOGIC: TAB 8 - Logs
   # ==========================================
   output$app_log <- renderText({
     errors <- error_log()
