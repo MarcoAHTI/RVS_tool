@@ -197,7 +197,7 @@ get_all_interventie_names <- function() {
 
 # ===== UI DEFINITION =====
 ui <- navbarPage(
-  title = "Laatste 1000 dagen",
+  title = "Laatste 1000 dagen: Iteratie 1",
   id = "main_nav",
   
   # --- TAB 1: Basispopulatie ---
