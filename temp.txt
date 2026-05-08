@@ -1,0 +1,94 @@
+library(shiny)
+library(readxl)
+library(data.table)
+library(plotly)
+library(ggplot2)
+
+# ===== DATA INITIALISATIE =====
+data_path <- "data/data_iteration_1/all_output.xlsx"
+
+read_data <- function(path) {
+  sheets <- excel_sheets(path)
+  # Gebruik data.table voor snelheid bij grote datasets
+  dt <- rbindlist(lapply(sheets, function(s) {
+    as.data.table(read_excel(path, sheet = s, col_types = "text"))
+  }), fill = TRUE)
+  
+  # Kolomtypes corrigeren
+  num_cols <- c("value", "n_totaal")
+  dt[, (num_cols) := lapply(.SD, as.numeric), .SDcols = num_cols]
+  dt[, t := as.numeric(t)]
+  return(dt)
+}
+
+# Laad data eenmalig buiten de server voor snelheid
+dt_all <- read_data(data_path)
+base_names <- sort(unique(dt_all[!grepl("gebruik|heeft", name), name]))
+doodsoorzaken <- c("all", sort(unique(dt_all[doodsoorzaak != "all", doodsoorzaak])))
+
+# ===== UI =====
+ui <- fluidPage(
+  titlePanel("RVS Tool - Zorg over Tijd"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("mnd_domein", "Zorgdomein:", choices = base_names, selected = base_names[1], multiple = TRUE),
+      selectInput("mnd_bin", "Bin size:", choices = c("monthly", "1000days")),
+      selectInput("mnd_maatstaf", "Maatstaf:", choices = c(
+        "Kosten p.p." = "gemiddelde_per_persoon", 
+        "Totaal" = "sum_totaal_groep", 
+        "Prevalentie %" = "prevalentie_per_100")),
+      selectInput("mnd_jaar", "Jaar:", choices = c("2019", "2023", "Beide"), selected = "2023"),
+      selectInput("mnd_pop", "Populatie:", choices = doodsoorzaken),
+      selectInput("mnd_vgl", "Status:", choices = c("Overleden", "In leven")),
+      radioButtons("mnd_type", "Type:", choices = c("Staaf", "Lijn"), inline = TRUE)
+    ),
+    mainPanel(plotlyOutput("mnd_plot", height = "600px"))
+  )
+)
+
+# ===== SERVER =====
+server <- function(input, output, session) {
+  
+  filtered_dt <- reactive({
+    req(input$mnd_domein)
+    
+    # Bepaal doelnaam (voor prevalentie zoeken we 'gebruikt_...')
+    target_names <- if(input$mnd_maatstaf == "prevalentie_per_100") {
+      paste0("gebruikt_", input$mnd_domein) 
+    } else { 
+      input$mnd_domein 
+    }
+    
+    res <- dt_all[name %in% target_names & bin_size == input$mnd_bin]
+    
+    # Filters toepassen
+    if(input$mnd_jaar != "Beide") res <- res[cohort == input$mnd_jaar]
+    res <- res[doodsoorzaak == input$mnd_pop & died == input$mnd_vgl]
+    
+    # Prevalentie correctie naar %
+    if(input$mnd_maatstaf == "prevalentie_per_100") res[, value := value * 100]
+    
+    res[order(-t)]
+  })
+  
+  output$mnd_plot <- renderPlotly({
+    data <- filtered_dt()
+    req(nrow(data) > 0)
+    
+    p <- ggplot(data, aes(x = factor(t), y = value, fill = name, group = name)) +
+      theme_minimal() +
+      labs(x = "Tijd voor overlijden", y = input$mnd_maatstaf)
+    
+    if(input$mnd_type == "Staaf") {
+      p <- p + geom_col(position = "dodge")
+    } else {
+      p <- p + geom_line(aes(color = name)) + geom_point(aes(color = name))
+    }
+    
+    if(input$mnd_jaar == "Beide") p <- p + facet_wrap(~cohort)
+    
+    ggplotly(p)
+  })
+}
+
+shinyApp(ui, server)
